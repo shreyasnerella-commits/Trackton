@@ -26,6 +26,11 @@ class AnomalyEngine:
         recent_window = self.call_history[-self.threshold:]
         return all(sig == signature for sig in recent_window)
 
+    def check_for_infinite_loop(self, tool_name: str, tool_input: dict) -> bool:
+        """Generates signature and checks for infinite loop (expected by test suite)."""
+        signature = self.generate_tool_signature(tool_name, tool_input)
+        return self.is_loop_detected(signature)
+
 
 # Global engine instance for app-wide use
 engine = AnomalyEngine(threshold=3)
@@ -40,7 +45,7 @@ def check_for_infinite_loop(
     threshold: int = 3
 ) -> bool:
     """
-    Wrapper function to maintain compatibility with backend/app/main.py[cite: 6]
+    Wrapper function to maintain compatibility with backend/app/main.py
     while utilizing the in-memory AnomalyEngine.
     """
     return engine.is_loop_detected(input_hash)
