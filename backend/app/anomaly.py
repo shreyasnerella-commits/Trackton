@@ -1,41 +1,46 @@
 import hashlib
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any, Optional
+from supabase import Client
+
 
 class AnomalyEngine:
-    def __init__(self, threshold: int = 3):
-        """
-        Initialize the Anomaly Engine.
-        :param threshold: Number of identical tool calls required to trigger a loop detection.
-        """
+    def __init__(self, threshold: int = 3, window_size: int = 10):
         self.threshold = threshold
-        self.call_history: List[str] = []
+        self.window_size = window_size
+        self.call_history: list[str] = []
 
     def generate_tool_signature(self, tool_name: str, arguments: Dict[str, Any]) -> str:
-        """
-        Generates a deterministic SHA-256 hash for a given tool call.
-        Key sorting guarantees identical hashes regardless of dict key order.
-        """
-        # Sort keys so parameter order doesn't affect hash consistency
+        """Generates a deterministic SHA-256 hash for a tool call."""
         canonical_args = json.dumps(arguments, sort_keys=True)
         payload = f"{tool_name}:{canonical_args}"
         return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
-    def check_for_infinite_loop(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
-        """
-        Records the tool call and checks if the last N calls are identical.
-        Returns True if an infinite loop anomaly is detected.
-        """
-        signature = self.generate_tool_signature(tool_name, arguments)
+    def is_loop_detected(self, signature: str) -> bool:
+        """Records the signature and checks if an infinite loop threshold is hit."""
         self.call_history.append(signature)
 
-        # Ensure we have enough history to evaluate against the threshold
         if len(self.call_history) < self.threshold:
             return False
 
-        # Check if the last `threshold` calls are all equal to the latest signature
         recent_window = self.call_history[-self.threshold:]
-        if all(sig == signature for sig in recent_window):
-            return True
+        return all(sig == signature for sig in recent_window)
 
-        return False
+
+# Global engine instance for app-wide use
+engine = AnomalyEngine(threshold=3)
+
+
+def check_for_infinite_loop(
+    supabase_client: Optional[Client] = None,
+    trace_id: str = "",
+    agent_id: str = "",
+    tool_name: str = "",
+    input_hash: str = "",
+    threshold: int = 3
+) -> bool:
+    """
+    Wrapper function to maintain compatibility with backend/app/main.py[cite: 6]
+    while utilizing the in-memory AnomalyEngine.
+    """
+    return engine.is_loop_detected(input_hash)
