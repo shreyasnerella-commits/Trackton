@@ -1,24 +1,10 @@
 """
-Demo: INFINITE LOOP PATH
---------------------------
-Simulates a recursive delegation loop where an agent keeps calling
-itself with a SLIGHTLY MUTATED prompt each time (appending
-"Try again, error: ..."), which is exactly the pattern that would
-break naive exact-string-match loop detection.
-
-Because our hash (see agenttrace/hashing.py) is based on
-(agent_id + tool_name) and NOT the raw input, every one of these
-calls produces the SAME input_hash -- which is what lets Member 2's
-rolling-window cycle detector catch this as a loop even though the
-literal prompt text is different every time.
-
-This script also demonstrates the circuit breaker control flow: once
-check_circuit_breaker() (currently a stub, see tracer.py) starts
-returning True for this signature, the wrapper raises
-CircuitBrokenError and execution halts.
+Demo: Infinite Loop Path
+Demonstrates how the AnomalyEngine catches repeating agent tool calls
+and trips the circuit breaker before reaching maximum iterations.
 
 Run:
-    python demo/infinite_loop_path.py
+    python agenttrace-sdk/demo/infinite_loop_path.py
 """
 
 import sys
@@ -26,9 +12,11 @@ import os
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 from agenttrace import trace_agent, CircuitBrokenError
 from agenttrace.hashing import compute_signature
+from backend.app.anomaly import engine
 
 MAX_SIMULATED_ITERATIONS = 8  # safety cap so a broken demo can't run forever
 
@@ -39,6 +27,10 @@ def fixer_agent(prompt: str, iteration: int) -> str:
 
     if iteration >= MAX_SIMULATED_ITERATIONS:
         return f"Gave up after {iteration} iterations: {prompt}"
+
+    # Check circuit breaker using AnomalyEngine
+    if engine.check_for_infinite_loop("retry_call", {"agent_id": "fixer"}):
+        raise CircuitBrokenError(f"Infinite loop detected by AnomalyEngine at iteration {iteration}!")
 
     # Simulate the agent "mutating" its own prompt on each retry --
     # this is the exact pattern that breaks naive exact-match hashing.
@@ -59,9 +51,7 @@ if __name__ == "__main__":
     try:
         result = fixer_agent("Initial task: fetch data", 0)
         print(f"\nCompleted without circuit breaker tripping: {result}")
-        print("NOTE: check_circuit_breaker() is currently a stub returning False.")
-        print("Once Member 2's real detector is wired in, this same run should")
-        print("raise CircuitBrokenError well before iteration 8.")
+        print("NOTE: Circuit breaker failed to catch the loop.")
     except CircuitBrokenError as e:
         print(f"\nCircuit breaker tripped as expected: {e}")
 
